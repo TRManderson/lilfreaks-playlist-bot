@@ -16,7 +16,7 @@ logger.setLevel("INFO")
 
 track_regex = re.compile("https://open.spotify.com/track/([a-zA-Z0-9]+)")
 
-class FreaksPlaylistclient(DiscordClient):
+class FreaksPlaylistClient(DiscordClient):
     spotify: Spotify
     playlist_id: str
 
