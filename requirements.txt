@@ -1,2 +1,2 @@
 discord.py
-spotipy2
+spotipy
