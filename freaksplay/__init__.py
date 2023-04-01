@@ -1,11 +1,12 @@
 import logging
 import re
 import asyncio
-from typing import Any, Callable, Optional, Dict, TypeVar
+from typing import Any, Callable, List, Optional, Dict, TypeVar
 from discord import Client as DiscordClient, CustomActivity, Intents, Message, PartialEmoji, Reaction
 from spotipy import Spotify, SpotifyClientCredentials
 from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
+import aiohttp
 
 T = TypeVar('T')
 
@@ -16,10 +17,31 @@ logger.setLevel("DEBUG")
 logging.getLogger("discord.client").setLevel("DEBUG")
 
 track_regex = re.compile("https://open.spotify.com/track/([a-zA-Z0-9]+)")
+spotify_link_regex = re.compile("https://spotify.link/[a-zA-Z0-9]+")
 
 intents = Intents.default()
 intents.message_content = True
 intents.presences = True
+
+async def find_tracks(message: str) -> List[str]:
+    tracks = track_regex.findall(message)
+    links = spotify_link_regex.findall(message)
+    link_tracks = []
+    cookie_jar = aiohttp.DummyCookieJar() # no cookies pls
+    async with aiohttp.ClientSession(cookie_jar=cookie_jar) as session:
+        reqs = [
+            asyncio.ensure_future(session.head(link, allow_redirects=False))
+            for link in links
+        ]
+        for req in reqs:
+            resp = await req
+            if 300 <= resp.status < 400:
+                redirect = resp.headers['Location']
+                track = track_regex.findall(redirect)
+                if track:
+                    link_tracks.extend(track)
+    return tracks + link_tracks
+
 
 class FreaksPlaylistClient(DiscordClient):
     spotify: Spotify
@@ -43,12 +65,11 @@ class FreaksPlaylistClient(DiscordClient):
         if message.channel.name != self.channel_name:
             return
 
-        matches = track_regex.findall(message.content)
+        matches = await find_tracks(message.content)
         if len(matches) == 0:
             return
         logger.info(f"Found {len(matches)} track IDs to add: {matches}")
         
-        tracks_resp = await self.run_async(self.spotify.tracks, matches)
         await self.run_async(self.spotify.playlist_add_items, self.playlist_id, matches)
         await message.add_reaction(PartialEmoji(name="🎵"))
         
